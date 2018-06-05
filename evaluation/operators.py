@@ -29,4 +29,8 @@ def laplace(shape, time_order=2, space_order=2, skew_factor=0, autotune=True, it
 
     # Execute the generated Devito stencil operator
     op.apply(u=u, dt=dt, autotune=autotune, time=iterations-1)
-    return u.data, op
+    return u.data
+
+
+def acoustic(shape, time_order=2, space_order=4):
+    pass

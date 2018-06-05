@@ -7,7 +7,7 @@ import sys
 
 import numpy as np
 
-from operators import laplace
+from operators import laplace, acoustic
 
 
 def eprint(*args, **kwargs):
@@ -29,9 +29,9 @@ parser.add_argument('-s', '--shape', nargs='+', type=int)
 parser.add_argument('-b', '--blockshape', nargs='+', type=int)
 parser.add_argument('-i', '--blockinner', action='store_true')
 parser.add_argument('-t', '--timesteps', type=int, default=16)
-parser.add_argument('-d', '--space-order', type=int, default=2)
-parser.add_argument('-k', '--skew-factor', type=int, default=2)
-parser.add_argument('-p', '--print', action='store_true')
+parser.add_argument('-so', '--space-order', type=int, default=4)
+parser.add_argument('-to', '--time-order', type=int, default=2)
+parser.add_argument('-k', '--skew-factor', type=int, default=0)
 
 args = parser.parse_args()
 
@@ -42,32 +42,21 @@ def compare(arr1, arr2):
             np.allclose(arr1.data, arr2.data, atol=10e-3))
 
 
-def check_control(result):
+def check_control(result, no_bl):
     eprint("result nonzero-count: %d" % np.count_nonzero(result.data))
-    if not args.no_tiling:
-        eprint("Running non-blocking code as control...")
-        no_bl, _ = operator(shape, 2, dle='noop', iterations=args.timesteps,
-                            space_order=args.space_order)
+    eprint("untile nonzero-count: %d" % np.count_nonzero(untile.data))
 
-        if args.print:
-            print(result)
-            print(no_bl)
-
-        i = args.timesteps
-        l, r = 0, i
-        while l < r - 1:
-            comp = compare(result[i], no_bl[i])
-            eprint("t=%d: max diff: %f, np.eq: %s, close: %s" %
-                    (i, comp[0], comp[1], comp[2]))
-            if comp[2] and not np.isnan(comp[0]):
-                l = i
-            else:
-                r = i
-            i = int((l + r) / 2)
-    else:
-        if args.print:
-            print(result)
-        eprint("NO MATCH: control not run")
+    i = args.timesteps
+    l, r = 0, i
+    while l < r - 1:
+        comp = compare(result[i], no_bl[i])
+        eprint("t=%d: max diff: %f, np.eq: %s, close: %s" %
+                (i, comp[0], comp[1], comp[2]))
+        if comp[2] and not np.isnan(comp[0]):
+            l = i
+        else:
+            r = i
+        i = int((l + r) / 2)
 
 
 if __name__ == '__main__':
@@ -76,8 +65,9 @@ if __name__ == '__main__':
     if args.laplace:
         operator = laplace
         shape = args.shape or (512, 512, 512)
-        blockshape = args.blockshape or (16, 16, 16, 16)
     elif args.acoustic:
+        operator = acoustic
+        shape = args.shape or (512, 512, 512)
         # TODO
         pass
     else:
@@ -85,27 +75,30 @@ if __name__ == '__main__':
 
     kwargs = {
         'shape': shape,
-        'blockshape': blockshape,
         'iterations': args.timesteps,
         'space_order': args.space_order,
         'time_order': 2,
-        'autotune': args.autotune
+        'autotune': args.autotune,
     }
 
-    dle_args = {'blockinner': args.blockinner}
-    if not args.autotune:
-        dle_args['blockshape'] = blockshape
+    dse = 'advanced'
+    dle = ('blocking,openmp', {'blockinner': args.blockinner})
+
+    if args.blockshape:
+        dle[1]['blockshape'] = args.blockshape
 
     if args.no_tiling:
-        kwargs['dle'] = 'noop'
+        dle = 'noop'
     elif args.space_tiling:
-        kwargs['dle'] = ('blocking,openmp', dle_args)
+        pass
     elif args.time_tiling:
-        kwargs['dle'] = ('blocking,openmp', dle_args)
-        kwargs['dse'] = 'skewing'
-        kwargs['skew_factor'] = args.skew_factor
+        dse = 'skewing'
     else:
         raise ValueError("No tiling selected")
-    result, _ = operator(**kwargs)
 
-    check_control(result)
+    result = operator(dse=dse, skew_factor=args.skew_factor, dle=dle, **kwargs)
+    if args.no_tiling:
+        eprint("MATCH: NONE: non-tiled code run")
+    else:
+        untile = operator(dse='advanced', skew_factor=0, dle='noop', **kwargs)
+        check_control(result, untile)
