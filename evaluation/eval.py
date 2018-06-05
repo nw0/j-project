@@ -7,11 +7,9 @@ import sys
 
 import numpy as np
 
+from devito.logger import info
+
 from operators import laplace, acoustic
-
-
-def eprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
 
 
 parser = argparse.ArgumentParser(description="Evaluation script for time-tiling in Devito")
@@ -43,14 +41,15 @@ def compare(arr1, arr2):
 
 
 def check_control(result, no_bl):
-    eprint("result nonzero-count: %d" % np.count_nonzero(result.data))
-    eprint("untile nonzero-count: %d" % np.count_nonzero(untile.data))
+    info("result nonzero-count: %d" % np.count_nonzero(result.data))
+    info("untile nonzero-count: %d" % np.count_nonzero(untile.data))
 
-    i = args.timesteps
+    assert len(result.data) == len(untile.data)
+    i = len(result.data) - 1
     l, r = 0, i
     while l < r - 1:
         comp = compare(result[i], no_bl[i])
-        eprint("t=%d: max diff: %f, np.eq: %s, close: %s" %
+        info("t=%d: max diff: %f, np.eq: %s, close: %s" %
                 (i, comp[0], comp[1], comp[2]))
         if comp[2] and not np.isnan(comp[0]):
             l = i
@@ -60,7 +59,7 @@ def check_control(result, no_bl):
 
 
 if __name__ == '__main__':
-    eprint(args)
+    info(args)
 
     if args.laplace:
         operator = laplace
@@ -98,7 +97,8 @@ if __name__ == '__main__':
 
     result = operator(dse=dse, skew_factor=args.skew_factor, dle=dle, **kwargs)
     if args.no_tiling:
-        eprint("MATCH: NONE: non-tiled code run")
+        info("MATCH: NONE: non-tiled code run")
     else:
+        info("Running non-tiled code")
         untile = operator(dse='advanced', skew_factor=0, dle='noop', **kwargs)
         check_control(result, untile)
