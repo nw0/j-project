@@ -77,36 +77,35 @@ if __name__ == '__main__':
         operator = laplace
         shape = args.shape or (512, 512, 512)
         blockshape = args.blockshape or (16, 16, 16, 16)
-
-        dle_args = {'blockinner': args.blockinner}
-        if not args.autotune:
-            dle_args['blockshape'] = blockshape
-
-        if args.no_tiling:
-            eprint("Tiling: None")
-            eprint("Iteration space: %s" % str(shape))
-            result, _ = operator(shape, 2, dle='noop', iterations=args.timesteps,
-                            space_order=args.space_order)
-        elif args.space_tiling:
-            eprint("Tiling: Space")
-            eprint("Iteration space: %s" % str(shape))
-            eprint("Block shape: %s" % str(blockshape))
-            result, _ = operator(shape, 2, autotune=args.autotune, iterations=args.timesteps,
-                            dle=('blocking,openmp', dle_args),
-                            space_order=args.space_order)
-        elif args.time_tiling:
-            eprint("Tiling: Time")
-            eprint("Iteration space: %s" % str(shape))
-            eprint("Block shape: %s" % str(blockshape))
-            result, _ = operator(shape, 2, autotune=args.autotune, skew_factor=args.skew_factor, dse='skewing',
-                    dle=('blocking,openmp', dle_args),
-                            iterations=args.timesteps, space_order=args.space_order)
-        else:
-            raise ValueError("No tiling selected")
-
-        check_control(result)
     elif args.acoustic:
         # TODO
         pass
     else:
         raise ValueError("Unknown operator")
+
+    kwargs = {
+        'shape': shape,
+        'blockshape': blockshape,
+        'iterations': args.timesteps,
+        'space_order': args.space_order,
+        'time_order': 2,
+        'autotune': args.autotune
+    }
+
+    dle_args = {'blockinner': args.blockinner}
+    if not args.autotune:
+        dle_args['blockshape'] = blockshape
+
+    if args.no_tiling:
+        kwargs['dle'] = 'noop'
+    elif args.space_tiling:
+        kwargs['dle'] = ('blocking,openmp', dle_args)
+    elif args.time_tiling:
+        kwargs['dle'] = ('blocking,openmp', dle_args)
+        kwargs['dse'] = 'skewing'
+        kwargs['skew_factor'] = args.skew_factor
+    else:
+        raise ValueError("No tiling selected")
+    result, _ = operator(**kwargs)
+
+    check_control(result)

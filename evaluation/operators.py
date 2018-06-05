@@ -7,7 +7,7 @@ from sympy import solve
 from devito import Eq, Grid, Operator, TimeFunction, configuration, clear_cache
 
 
-def laplace(shape, time_order, space_order=2, skew_factor=0, autotune=True, iterations=16, **kwargs):
+def laplace(shape, time_order=2, space_order=2, skew_factor=0, autotune=True, iterations=16, **kwargs):
     configuration['skew_factor'] = skew_factor
     grid = Grid(shape=shape)
     spacing = 0.1
