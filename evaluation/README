@@ -1,0 +1,24 @@
+environment/
+Environment variables sourced when testing
+
+results/
+Results of computations -- 
+  old+invalid/ old and invalid resusts
+  final/ final results used in report
+    Full debug output included, +numerical verification
+    Note: for acoustic, failed to run np.allclose, BUT:
+          counted non-zero & verified np.equal successfully, so
+          stronger condition holds.
+
+Naming conventions:
+a600k2d4
+1st char: t,s,a -- time-tiling, space-tiling, or autotuner run
+500,512,600 -- grid size, deduce operator from this
+k{1,2,3,...} skewing factor (if time-tiling)
+d{2,4,...} space order
+
+testing/
+The testing scripts used for the evaluation
+
+testing_new/
+New (refactored) testing scripts NOT USED IN THIS WORK
