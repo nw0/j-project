@@ -1,0 +1,40 @@
+From 4d6047b1762d1ffc3e64580d0b602fbe392bb7e5 Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Mon, 12 Feb 2018 21:55:05 +0000
+Subject: [PATCH 10/25] dle: blocking: widen bounds on outer blocks
+
+This is to accomodate the possibility that skew_factor * time_bs is not
+a multiple of lower dimensional block sizes.
+---
+ devito/dle/backends/advanced.py | 15 ++++++++++-----
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/devito/dle/backends/advanced.py b/devito/dle/backends/advanced.py
+index 710170ac..4af44d9b 100644
+--- a/devito/dle/backends/advanced.py
++++ b/devito/dle/backends/advanced.py
+@@ -158,11 +158,16 @@ class DevitoRewriter(BasicRewriter):
+ 
+                 # Build Iteration over blocks
+                 dim = blocked.setdefault(i, Dimension(name))
+-                block_size = dim.symbolic_size
+-                start = i.limits[0] - i.offsets[0]  # FIXME: "widen"
+-                finish = i.limits[1] - i.offsets[1]  # FIXME
+-
+-                inter_block = Iteration([], dim, [start, finish, block_size],
++                block_size = dim.symbolic_size  # The variable which will contain the block size
++                # FIXME: what if the time dimension doesn't start at 0?
++                # We subtract the skew here to straighten out the blocks
++                start = i.limits[0] - i.offsets[0]
++                finish = i.limits[1] - i.offsets[1]
++
++                # FIXME: these bounds might be a little fishy
++                outer_start = start + i.skew[0] * i.skew[1]
++                outer_finish = finish + i.skew[0] * i.skew[1] - i.skew[0] * i.skew[1].symbolic_end
++                inter_block = Iteration([], dim, [outer_start, outer_finish, block_size],
+                                         properties=PARALLEL)
+                 inter_blocks.append(inter_block)  # the area being blocked
+ 
+-- 
+2.17.1
+

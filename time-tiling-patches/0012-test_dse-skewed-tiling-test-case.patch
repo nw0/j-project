@@ -1,0 +1,32 @@
+From 0dfe57b129fe1146112ff23024e06aaebf8fe508 Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Mon, 12 Feb 2018 21:58:11 +0000
+Subject: [PATCH 12/25] test_dse: skewed tiling test case
+
+---
+ tests/test_dse.py | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/tests/test_dse.py b/tests/test_dse.py
+index fbab3584..4a8b8cfb 100644
+--- a/tests/test_dse.py
++++ b/tests/test_dse.py
+@@ -135,6 +135,15 @@ def test_tti_rewrite_basic(tti_nodse):
+     assert np.allclose(tti_nodse[1].data, rec.data, atol=10e-3)
+ 
+ 
++@skipif_yask
++def test_dle_tiling(tti_nodse):
++    operator = tti_operator(dse='skewing', dle='advanced')
++    rec, u, v, _ = operator.forward()
++
++    assert np.allclose(tti_nodse[0].data, v.data, atol=10e-3)
++    assert np.allclose(tti_nodse[1].data, rec.data, atol=10e-3)
++
++
+ @skipif_yask
+ def test_tti_rewrite_skewing(tti_nodse):
+     operator = tti_operator(dse='skewing', dle='noop')
+-- 
+2.17.1
+

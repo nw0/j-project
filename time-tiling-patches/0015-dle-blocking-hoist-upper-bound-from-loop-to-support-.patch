@@ -1,0 +1,93 @@
+From ccea7a1866285d64172cb7c9b4a208d8e1984ca7 Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Fri, 16 Feb 2018 14:09:24 +0000
+Subject: [PATCH 15/25] dle: blocking: hoist upper bound from loop to support
+ openmp
+
+This didn't work: for ( ; x < fmin(...); ) gives 'error: invalid
+controlling predicate'
+---
+ devito/dle/backends/advanced.py | 22 +++++++++++++++-------
+ devito/ir/iet/utils.py          | 10 +++++++++-
+ 2 files changed, 24 insertions(+), 8 deletions(-)
+
+diff --git a/devito/dle/backends/advanced.py b/devito/dle/backends/advanced.py
+index 4af44d9b..62dee022 100644
+--- a/devito/dle/backends/advanced.py
++++ b/devito/dle/backends/advanced.py
+@@ -8,7 +8,7 @@ from itertools import combinations
+ import cgen
+ import numpy as np
+ import psutil
+-from sympy import Min, Max
++from sympy import Eq, Min, Max
+ 
+ from devito.cgen_utils import ccode
+ from devito.dimension import Dimension
+@@ -21,10 +21,11 @@ from devito.ir.iet import (Block, Expression, Iteration, List,
+                            PARALLEL, ELEMENTAL, REMAINDER, tagger,
+                            FindNodes, FindSymbols, IsPerfectIteration,
+                            SubstituteExpression, Transformer, compose_nodes,
+-                           retrieve_iteration_tree, filter_iterations, copy_arrays)
++                           retrieve_iteration_tree, filter_iterations,
++                           copy_arrays, SEQUENTIAL)
+ from devito.logger import dle_warning
+ from devito.tools import as_tuple, grouper, roundm
+-from devito.types import Array
++from devito.types import Array, Scalar
+ 
+ 
+ class DevitoRewriter(BasicRewriter):
+@@ -36,7 +37,7 @@ class DevitoRewriter(BasicRewriter):
+         self._simdize(state)
+         if self.params['openmp'] is True:
+             self._ompize(state)
+-        self._create_elemental_functions(state)
++        # self._create_elemental_functions(state)
+         self._minimize_remainders(state)
+ 
+     @dle_pass
+@@ -173,9 +174,16 @@ class DevitoRewriter(BasicRewriter):
+ 
+                 # Build Iteration within a block
+                 start = Max(inter_block.dim, start)
+-                finish = Min(inter_block.dim + block_size, finish)
+-                intra_block = i._rebuild([], limits=[start, finish, 1], offsets=None,
+-                                         properties=i.properties + (TAG, ELEMENTAL))
++                ub = Min(inter_block.dim + block_size, finish)
++                if i.is_Parallel:
++                    q = Scalar(name='%s_ub' % i.dim.name)
++                    intra_blocks.append(Expression(Eq(q, ub), np.dtype(np.int32)))
++                    properties = [p for p in i.properties if p != SEQUENTIAL] + [PARALLEL, TAG]
++                else:
++                    q = ub
++                    properties = i.properties + (TAG, ELEMENTAL)
++                intra_block = i._rebuild([], limits=[start, q, 1], offsets=None,
++                                         properties=properties)
+                 intra_blocks.append(intra_block)
+ 
+             # Build blocked Iteration nest
+diff --git a/devito/ir/iet/utils.py b/devito/ir/iet/utils.py
+index 5b8d7d47..3ac5a969 100644
+--- a/devito/ir/iet/utils.py
++++ b/devito/ir/iet/utils.py
+@@ -112,7 +112,15 @@ def compose_nodes(nodes, retrieve=False):
+         body = l.pop(-1)
+         while l:
+             handle = l.pop(-1)
+-            body = handle._rebuild(body, **handle.args_frozen)
++            # The original code assumed nested loops only, and we wanted
++            #  to handle [Iteration, Expression, Iteration, ...]
++            # See DevitoRewriter._loop_blocking()
++            # Easy to abuse (think of perfect loop nests)
++            # FIXME: can only handle one expression before an iteration
++            if isinstance(handle, Expression) and isinstance(body, Iteration):
++                body = (handle, body)
++            else:
++                body = handle._rebuild(body, **handle.args_frozen)
+             tree.append(body)
+ 
+     if retrieve is True:
+-- 
+2.17.1
+

@@ -1,0 +1,29 @@
+From 76f50376daefa62aca8ea6cbeba9193b2a467a7e Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Mon, 12 Feb 2018 21:57:28 +0000
+Subject: [PATCH 11/25] dle: IterationFold: add skew parameter
+
+---
+ devito/dle/blocking_utils.py | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/devito/dle/blocking_utils.py b/devito/dle/blocking_utils.py
+index b0524a98..7e3051b3 100644
+--- a/devito/dle/blocking_utils.py
++++ b/devito/dle/blocking_utils.py
+@@ -202,9 +202,10 @@ class IterationFold(Iteration):
+     is_IterationFold = True
+ 
+     def __init__(self, nodes, dimension, limits, index=None, offsets=None,
+-                 properties=None, pragmas=None, uindices=None, folds=None):
++                 properties=None, pragmas=None, uindices=None, folds=None,
++                 skew=None):
+         super(IterationFold, self).__init__(nodes, dimension, limits, index, offsets,
+-                                            properties, uindices, pragmas)
++                                            properties, uindices, pragmas, skew=skew)
+         self.folds = folds
+ 
+     def __repr__(self):
+-- 
+2.17.1
+

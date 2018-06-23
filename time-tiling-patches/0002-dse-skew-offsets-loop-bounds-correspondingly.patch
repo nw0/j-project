@@ -1,0 +1,153 @@
+From 3818e033bcef5b686246c08ba15c3420e7082c49 Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Fri, 12 Jan 2018 14:44:12 +0000
+Subject: [PATCH 02/25] dse: skew: offsets loop bounds correspondingly
+
+---
+ devito/dse/backends/advanced.py  |  8 +++++---
+ devito/ir/clusters/algorithms.py |  2 +-
+ devito/ir/clusters/cluster.py    | 12 +++++++-----
+ devito/operator.py               | 13 +++++++++----
+ 4 files changed, 22 insertions(+), 13 deletions(-)
+
+diff --git a/devito/dse/backends/advanced.py b/devito/dse/backends/advanced.py
+index 236a06ee..be765ce6 100644
+--- a/devito/dse/backends/advanced.py
++++ b/devito/dse/backends/advanced.py
+@@ -175,17 +175,19 @@ class SkewingRewriter(AdvancedRewriter):
+ 
+     @dse_pass
+     def _loop_skew(self, cluster, template, **kwargs):
+-        # FIXME: this is probably the wrong way to find the time dimension
++        skew_factor = -2 # FIXME: read parameter
+         t, mapper = None, {}
++
++        # FIXME: this is probably the wrong way to find the time dimension
+         for dim in cluster.stencil.dimensions:
+             if t is not None:
+-                mapper[dim] = dim - 2 * t
++                mapper[dim] = dim + skew_factor * t
+             elif dim.is_Time:
+                 t = dim.parent
+-        # FIXME: need to modify loop headers
+ 
+         if t is None:
+             return cluster
+ 
++        cluster.skewed_loops = {dim: skew - dim for dim, skew in mapper.items()}
+         processed = xreplace_indices(cluster.exprs, mapper)
+         return cluster.rebuild(processed)
+diff --git a/devito/ir/clusters/algorithms.py b/devito/ir/clusters/algorithms.py
+index d782fb9a..a77953af 100644
+--- a/devito/ir/clusters/algorithms.py
++++ b/devito/ir/clusters/algorithms.py
+@@ -259,7 +259,7 @@ def clusterize(exprs, stencils):
+     clusters = ClusterGroup()
+     for target, pc in mapper.items():
+         exprs = [i for i in pc.exprs if i.lhs.is_Symbol or i.lhs == target]
+-        clusters.append(PartialCluster(exprs, pc.stencil))
++        clusters.append(PartialCluster(exprs, pc.stencil, pc.skewed_loops))
+ 
+     # Attempt grouping as many PartialClusters as possible together
+     return groupby(clusters)
+diff --git a/devito/ir/clusters/cluster.py b/devito/ir/clusters/cluster.py
+index 41ddb955..2cf173ee 100644
+--- a/devito/ir/clusters/cluster.py
++++ b/devito/ir/clusters/cluster.py
+@@ -18,7 +18,7 @@ class PartialCluster(object):
+     the embedded sequence of expressions are subjected to modifications.
+     """
+ 
+-    def __init__(self, exprs, stencil):
++    def __init__(self, exprs, stencil, skewed_loops={}):
+         """
+         Initialize a PartialCluster.
+ 
+@@ -29,6 +29,7 @@ class PartialCluster(object):
+         """
+         self._exprs = list(exprs)
+         self._stencil = stencil
++        self.skewed_loops = skewed_loops
+ 
+     @property
+     def exprs(self):
+@@ -70,9 +71,10 @@ class Cluster(PartialCluster):
+ 
+     """A Cluster is an immutable PartialCluster."""
+ 
+-    def __init__(self, exprs, stencil):
++    def __init__(self, exprs, stencil, skewed_loops={}):
+         self._exprs = as_tuple(exprs)
+         self._stencil = stencil.frozen
++        self.skewed_loops = skewed_loops
+ 
+     @cached_property
+     def trace(self):
+@@ -90,7 +92,7 @@ class Cluster(PartialCluster):
+         """
+         Build a new cluster with expressions ``exprs`` having same stencil as ``self``.
+         """
+-        return Cluster(exprs, self.stencil)
++        return Cluster(exprs, self.stencil, self.skewed_loops)
+ 
+     @PartialCluster.exprs.setter
+     def exprs(self, val):
+@@ -120,7 +122,7 @@ class ClusterGroup(list):
+         Return a new ClusterGroup in which all of ``self``'s Clusters have
+         been promoted to PartialClusters. The ``atomics`` information is lost.
+         """
+-        return ClusterGroup([PartialCluster(i.exprs, i.stencil)
++        return ClusterGroup([PartialCluster(i.exprs, i.stencil, i.skewed_loops)
+                              if isinstance(i, Cluster) else i for i in self])
+ 
+     def freeze(self):
+@@ -131,7 +133,7 @@ class ClusterGroup(list):
+         clusters = ClusterGroup()
+         for i in self:
+             if isinstance(i, PartialCluster):
+-                cluster = Cluster(i.exprs, i.stencil)
++                cluster = Cluster(i.exprs, i.stencil, i.skewed_loops)
+                 clusters.append(cluster)
+                 clusters.atomics[cluster] = self.atomics[i]
+             else:
+diff --git a/devito/operator.py b/devito/operator.py
+index f30a05ec..2e1022b1 100644
+--- a/devito/operator.py
++++ b/devito/operator.py
+@@ -15,6 +15,7 @@ from devito.dle import transform
+ from devito.dse import rewrite
+ from devito.exceptions import InvalidArgument, InvalidOperator
+ from devito.function import Forward, Backward, CompositeFunction
++from devito.ir import Cluster
+ from devito.logger import bar, error, info
+ from devito.ir.clusters import clusterize
+ from devito.ir.iet import (Element, Expression, Callable, Iteration, List,
+@@ -300,8 +301,8 @@ class Operator(Callable):
+         best block sizes when loop blocking is in use."""
+         return arguments
+ 
+-    def _schedule_expressions(self, clusters):
+-        """Create an Iteartion/Expression tree given an iterable of
++    def _schedule_expressions(self, clusters: Cluster):
++        """Create an Iteration/Expression tree given an iterable of
+         :class:`Cluster` objects."""
+ 
+         # Build the Iteration/Expression tree
+@@ -326,8 +327,12 @@ class Operator(Callable):
+                 needed = entries[index:]
+ 
+                 # Build and insert the required Iterations
+-                iters = [Iteration([], j.dim, j.dim.limits, offsets=j.ofs) for j in
+-                         needed]
++                iters = []
++                for j in needed:
++                    limits = j.dim.limits
++                    if j.dim in i.skewed_loops:
++                        limits = [l - i.skewed_loops[j.dim] for l in limits]
++                    iters.append(Iteration([], j.dim, limits, offsets=j.ofs))
+                 body, tree = compose_nodes(iters + [expressions], retrieve=True)
+                 scheduling = OrderedDict(zip(needed, tree))
+                 if root is None:
+-- 
+2.17.1
+

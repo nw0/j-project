@@ -1,0 +1,74 @@
+From 26b156ee9c76f999a9f75260700f7cfe9ca0755e Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Mon, 12 Feb 2018 13:46:14 +0000
+Subject: [PATCH 08/25] dse: skew: skewed_loops: break into factor, dim
+
+---
+ devito/dse/backends/advanced.py | 4 +++-
+ devito/ir/iet/nodes.py          | 3 ++-
+ devito/operator.py              | 9 +++++----
+ 3 files changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/devito/dse/backends/advanced.py b/devito/dse/backends/advanced.py
+index d7e354a8..f0a2fed3 100644
+--- a/devito/dse/backends/advanced.py
++++ b/devito/dse/backends/advanced.py
+@@ -177,17 +177,19 @@ class SkewingRewriter(AdvancedRewriter):
+     def _loop_skew(self, cluster, template, **kwargs):
+         skew_factor = -2  # FIXME: read parameter
+         t, mapper = None, {}
++        skews = {}
+ 
+         # FIXME: this is probably the wrong way to find the time dimension
+         for dim in cluster.stencil.dimensions:
+             if t is not None:
+                 mapper[dim] = dim + skew_factor * t
++                skews[dim] = (skew_factor, t)
+             elif dim.is_Time:
+                 t = dim.parent
+ 
+         if t is None:
+             return cluster
+ 
+-        cluster.skewed_loops = {dim: skew - dim for dim, skew in mapper.items()}
++        cluster.skewed_loops = skews
+         processed = xreplace_indices(cluster.exprs, mapper)
+         return cluster.rebuild(processed)
+diff --git a/devito/ir/iet/nodes.py b/devito/ir/iet/nodes.py
+index daaa56fd..c90f874f 100644
+--- a/devito/ir/iet/nodes.py
++++ b/devito/ir/iet/nodes.py
+@@ -290,7 +290,8 @@ class Iteration(Node):
+         self.uindices = as_tuple(uindices)
+         assert all(isinstance(i, UnboundedIndex) for i in self.uindices)
+ 
+-        self.skew = skew if skew else 0
++        # If there is no skewing factor, want to insert a dummy dimension
++        self.skew = skew if skew else (0, self.dim)
+ 
+     def __repr__(self):
+         properties = ""
+diff --git a/devito/operator.py b/devito/operator.py
+index 0213564b..d3118ea1 100644
+--- a/devito/operator.py
++++ b/devito/operator.py
+@@ -331,11 +331,12 @@ class Operator(Callable):
+                 for j in needed:
+                     limits = j.dim.limits
+                     if j.dim in i.skewed_loops:
+-                        limits = (limits[0] - i.skewed_loops[j.dim], limits[1] - i.skewed_loops[j.dim], limits[2])
+-                        skew = i.skewed_loops[j.dim]
++                        skew_tuple = i.skewed_loops[j.dim]
++                        skew = skew_tuple[0] * skew_tuple[1]
++                        limits = (limits[0] - skew, limits[1] - skew, limits[2])
+                     else:
+-                        skew = 0
+-                    iters.append(Iteration([], j.dim, limits, offsets=j.ofs, skew=skew))
++                        skew_tuple = 0
++                    iters.append(Iteration([], j.dim, limits, offsets=j.ofs, skew=skew_tuple))
+                 body, tree = compose_nodes(iters + [expressions], retrieve=True)
+                 scheduling = OrderedDict(zip(needed, tree))
+                 if root is None:
+-- 
+2.17.1
+

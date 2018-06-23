@@ -1,0 +1,24 @@
+From f5683864d523428c34eb9ee9efbe37fa70ea9277 Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Wed, 30 May 2018 20:47:12 +0100
+Subject: [PATCH 21/25] operator: always pop autotune arg
+
+---
+ devito/operator.py | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/devito/operator.py b/devito/operator.py
+index d3118ea1..b842592b 100644
+--- a/devito/operator.py
++++ b/devito/operator.py
+@@ -193,6 +193,7 @@ class Operator(Callable):
+         dim_sizes.update(dle_arguments)
+ 
+         autotune = autotune and kwargs.pop('autotune', False)
++        kwargs.pop('autotune', False)
+ 
+         # Make sure we've used all arguments passed
+         if len(kwargs) > 0:
+-- 
+2.17.1
+

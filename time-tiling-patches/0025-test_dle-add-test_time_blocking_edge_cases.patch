@@ -1,0 +1,50 @@
+From 63abe73a8719600439c02602e4cc53691c5c09c5 Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Mon, 4 Jun 2018 19:37:39 +0100
+Subject: [PATCH 25/25] test_dle: add test_time_blocking_edge_cases
+
+---
+ tests/test_dle.py | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/tests/test_dle.py b/tests/test_dle.py
+index 210d21c8..0dcf0536 100644
+--- a/tests/test_dle.py
++++ b/tests/test_dle.py
+@@ -378,6 +378,33 @@ def test_cache_blocking_edge_cases_highorder(shape, blockshape):
+     assert np.equal(wo_blocking.data, w_blocking.data).all()
+ 
+ 
++@skipif_yask
++@pytest.mark.parametrize("shape,blockshape", [
++    ((25, 25, 46), (None, None, None)),
++    ((25, 25, 46), (7, None, None)),
++    ((25, 25, 46), (None, None, 7)),
++    ((25, 25, 46), (None, 7, None)),
++    ((25, 25, 46), (5, None, 7)),
++    ((25, 25, 46), (10, 3, None)),
++    ((25, 25, 46), (None, 7, 11)),
++    ((25, 25, 46), (8, 2, 4)),
++    ((25, 25, 46), (2, 4, 8)),
++    ((25, 25, 46), (4, 8, 2)),
++    ((25, 46), (None, 7)),
++    ((25, 46), (7, None))
++])
++def test_time_blocking_edge_cases(shape, blockshape):
++    prev = configuration['skew_factor'] if 'skew_factor' in configuration else 0
++    configuration['skew_factor'] = 2
++    wo_blocking, _ = _new_operator2(shape, time_order=2, dle='noop')
++    w_blocking, _ = _new_operator2(shape, time_order=2, dse='skewing',
++                                   dle=('blocking,openmp',
++                                        {'blockshape': blockshape,
++                                         'blockinner': True}))
++    assert np.equal(wo_blocking.data, w_blocking.data).all()
++    configuration['skew_factor'] = prev
++
++
+ @skipif_yask
+ @pytest.mark.parametrize("shape,blockshape", [
+     ((3, 3), (3, 4)),
+-- 
+2.17.1
+

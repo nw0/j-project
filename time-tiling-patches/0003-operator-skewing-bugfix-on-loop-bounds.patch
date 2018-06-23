@@ -1,0 +1,25 @@
+From 12579d6248d078a98af4bb9cedfa59ce2acb620c Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Fri, 19 Jan 2018 19:10:40 +0000
+Subject: [PATCH 03/25] operator: skewing: bugfix on loop bounds
+
+---
+ devito/operator.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/devito/operator.py b/devito/operator.py
+index 2e1022b1..bdd56f81 100644
+--- a/devito/operator.py
++++ b/devito/operator.py
+@@ -331,7 +331,7 @@ class Operator(Callable):
+                 for j in needed:
+                     limits = j.dim.limits
+                     if j.dim in i.skewed_loops:
+-                        limits = [l - i.skewed_loops[j.dim] for l in limits]
++                        limits = (limits[0] - i.skewed_loops[j.dim], limits[1] - i.skewed_loops[j.dim], limits[2])
+                     iters.append(Iteration([], j.dim, limits, offsets=j.ofs))
+                 body, tree = compose_nodes(iters + [expressions], retrieve=True)
+                 scheduling = OrderedDict(zip(needed, tree))
+-- 
+2.17.1
+

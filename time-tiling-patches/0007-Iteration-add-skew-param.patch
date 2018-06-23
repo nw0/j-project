@@ -1,0 +1,65 @@
+From 277ce9c8d176a3938a6fb6fb8332bb0622f366fc Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Mon, 12 Feb 2018 13:31:38 +0000
+Subject: [PATCH 07/25] Iteration: add skew param
+
+---
+ devito/dse/backends/advanced.py | 2 +-
+ devito/ir/iet/nodes.py          | 4 +++-
+ devito/operator.py              | 5 ++++-
+ 3 files changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/devito/dse/backends/advanced.py b/devito/dse/backends/advanced.py
+index be765ce6..d7e354a8 100644
+--- a/devito/dse/backends/advanced.py
++++ b/devito/dse/backends/advanced.py
+@@ -175,7 +175,7 @@ class SkewingRewriter(AdvancedRewriter):
+ 
+     @dse_pass
+     def _loop_skew(self, cluster, template, **kwargs):
+-        skew_factor = -2 # FIXME: read parameter
++        skew_factor = -2  # FIXME: read parameter
+         t, mapper = None, {}
+ 
+         # FIXME: this is probably the wrong way to find the time dimension
+diff --git a/devito/ir/iet/nodes.py b/devito/ir/iet/nodes.py
+index 7d4f7223..daaa56fd 100644
+--- a/devito/ir/iet/nodes.py
++++ b/devito/ir/iet/nodes.py
+@@ -256,7 +256,7 @@ class Iteration(Node):
+     _traversable = ['nodes']
+ 
+     def __init__(self, nodes, dimension, limits, index=None, offsets=None,
+-                 properties=None, pragmas=None, uindices=None):
++                 properties=None, pragmas=None, uindices=None, skew=None):
+         # Ensure we deal with a list of Expression objects internally
+         nodes = as_tuple(nodes)
+         self.nodes = as_tuple([n if isinstance(n, Node) else Expression(n)
+@@ -290,6 +290,8 @@ class Iteration(Node):
+         self.uindices = as_tuple(uindices)
+         assert all(isinstance(i, UnboundedIndex) for i in self.uindices)
+ 
++        self.skew = skew if skew else 0
++
+     def __repr__(self):
+         properties = ""
+         if self.properties:
+diff --git a/devito/operator.py b/devito/operator.py
+index bdd56f81..0213564b 100644
+--- a/devito/operator.py
++++ b/devito/operator.py
+@@ -332,7 +332,10 @@ class Operator(Callable):
+                     limits = j.dim.limits
+                     if j.dim in i.skewed_loops:
+                         limits = (limits[0] - i.skewed_loops[j.dim], limits[1] - i.skewed_loops[j.dim], limits[2])
+-                    iters.append(Iteration([], j.dim, limits, offsets=j.ofs))
++                        skew = i.skewed_loops[j.dim]
++                    else:
++                        skew = 0
++                    iters.append(Iteration([], j.dim, limits, offsets=j.ofs, skew=skew))
+                 body, tree = compose_nodes(iters + [expressions], retrieve=True)
+                 scheduling = OrderedDict(zip(needed, tree))
+                 if root is None:
+-- 
+2.17.1
+

@@ -1,0 +1,51 @@
+From 5c082a6810c496261631687b9597bd830d49b0a1 Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Fri, 19 Jan 2018 19:11:13 +0000
+Subject: [PATCH 04/25] test_dse: skewing: derive test (tti) for skewing
+
+---
+ tests/test_dse.py | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/tests/test_dse.py b/tests/test_dse.py
+index 6e172bc8..fbab3584 100644
+--- a/tests/test_dse.py
++++ b/tests/test_dse.py
+@@ -62,7 +62,7 @@ def test_acoustic_rewrite_basic():
+ 
+ # TTI
+ 
+-def tti_operator(dse=False, space_order=4):
++def tti_operator(dse=False, space_order=4, dle='advanced'):
+     nrec = 101
+     t0 = 0.0
+     tn = 250.
+@@ -91,7 +91,8 @@ def tti_operator(dse=False, space_order=4):
+     rec.coordinates.data[:, 1:] = src.coordinates.data[0, 1:]
+ 
+     return AnisotropicWaveSolver(model, source=src, receiver=rec,
+-                                 time_order=2, space_order=space_order, dse=dse)
++                                 time_order=2, space_order=space_order, dse=dse,
++                                 dle=dle)
+ 
+ 
+ @pytest.fixture(scope="session")
+@@ -134,6 +135,15 @@ def test_tti_rewrite_basic(tti_nodse):
+     assert np.allclose(tti_nodse[1].data, rec.data, atol=10e-3)
+ 
+ 
++@skipif_yask
++def test_tti_rewrite_skewing(tti_nodse):
++    operator = tti_operator(dse='skewing', dle='noop')
++    rec, u, v, _ = operator.forward()
++
++    assert np.allclose(tti_nodse[0].data, v.data, atol=10e-3)
++    assert np.allclose(tti_nodse[1].data, rec.data, atol=10e-3)
++
++
+ @skipif_yask
+ def test_tti_rewrite_advanced(tti_nodse):
+     operator = tti_operator(dse='advanced')
+-- 
+2.17.1
+

@@ -1,0 +1,106 @@
+From c1e7b0b7aeb3e3739414215321e76fc6c8225aac Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Fri, 12 Jan 2018 12:39:23 +0000
+Subject: [PATCH 01/25] dse: introduce SkewingRewriter
+
+---
+ devito/dse/backends/__init__.py     |  3 ++-
+ devito/dse/backends/advanced.py     | 29 ++++++++++++++++++++++++++++-
+ devito/dse/transformer.py           |  3 ++-
+ examples/seismic/tti/tti_example.py |  2 +-
+ 4 files changed, 33 insertions(+), 4 deletions(-)
+
+diff --git a/devito/dse/backends/__init__.py b/devito/dse/backends/__init__.py
+index 233a2b1c..a1fae4f1 100644
+--- a/devito/dse/backends/__init__.py
++++ b/devito/dse/backends/__init__.py
+@@ -1,6 +1,7 @@
+ from devito.dse.backends.common import *  # noqa
+ from devito.dse.backends.basic import BasicRewriter  # noqa
+-from devito.dse.backends.advanced import AdvancedRewriter  # noqa
++from devito.dse.backends.advanced import (AdvancedRewriter,  # noqa
++                                          SkewingRewriter)
+ from devito.dse.backends.speculative import (SpeculativeRewriter,  # noqa
+                                              AggressiveRewriter,
+                                              CustomRewriter)
+diff --git a/devito/dse/backends/advanced.py b/devito/dse/backends/advanced.py
+index 0ad2a2a7..236a06ee 100644
+--- a/devito/dse/backends/advanced.py
++++ b/devito/dse/backends/advanced.py
+@@ -5,7 +5,7 @@ from collections import OrderedDict
+ from devito.ir import clusterize
+ from devito.dse.aliases import collect
+ from devito.dse.backends import BasicRewriter, dse_pass
+-from devito.symbolics import Eq, estimate_cost, xreplace_constrained, iq_timeinvariant
++from devito.symbolics import Eq, estimate_cost, xreplace_constrained, iq_timeinvariant, xreplace_indices
+ from devito.dse.manipulation import (common_subexprs_elimination, collect_nested,
+                                      compact_temporaries)
+ from devito.types import Indexed, Scalar, Array
+@@ -162,3 +162,30 @@ class AdvancedRewriter(BasicRewriter):
+         processed = [e.xreplace(rules) for e in processed]
+ 
+         return alias_clusters + [cluster.rebuild(processed)]
++
++
++class SkewingRewriter(AdvancedRewriter):
++
++    def _pipeline(self, state):
++        self._extract_time_invariants(state)
++        self._eliminate_inter_stencil_redundancies(state)
++        self._eliminate_intra_stencil_redundancies(state)
++        self._factorize(state)
++        self._loop_skew(state)
++
++    @dse_pass
++    def _loop_skew(self, cluster, template, **kwargs):
++        # FIXME: this is probably the wrong way to find the time dimension
++        t, mapper = None, {}
++        for dim in cluster.stencil.dimensions:
++            if t is not None:
++                mapper[dim] = dim - 2 * t
++            elif dim.is_Time:
++                t = dim.parent
++        # FIXME: need to modify loop headers
++
++        if t is None:
++            return cluster
++
++        processed = xreplace_indices(cluster.exprs, mapper)
++        return cluster.rebuild(processed)
+diff --git a/devito/dse/transformer.py b/devito/dse/transformer.py
+index de315b93..3b6789f0 100644
+--- a/devito/dse/transformer.py
++++ b/devito/dse/transformer.py
+@@ -2,7 +2,7 @@ from __future__ import absolute_import
+ 
+ from devito.ir.clusters import ClusterGroup, groupby
+ from devito.dse.backends import (BasicRewriter, AdvancedRewriter, SpeculativeRewriter,
+-                                 AggressiveRewriter, CustomRewriter)
++                                 AggressiveRewriter, CustomRewriter, SkewingRewriter)
+ from devito.exceptions import DSEException
+ from devito.logger import dse_warning
+ from devito.parameters import configuration
+@@ -13,6 +13,7 @@ __all__ = ['rewrite']
+ modes = {
+     'basic': BasicRewriter,
+     'advanced': AdvancedRewriter,
++    'skewing': SkewingRewriter,
+     'speculative': SpeculativeRewriter,
+     'aggressive': AggressiveRewriter
+ }
+diff --git a/examples/seismic/tti/tti_example.py b/examples/seismic/tti/tti_example.py
+index 87de1fac..07840847 100644
+--- a/examples/seismic/tti/tti_example.py
++++ b/examples/seismic/tti/tti_example.py
+@@ -64,7 +64,7 @@ if __name__ == "__main__":
+                         choices=['centered', 'shifted'],
+                         help="Choice of finite-difference kernel")
+     parser.add_argument("-dse", "-dse", default="advanced",
+-                        choices=["noop", "basic", "advanced",
++                        choices=["noop", "basic", "advanced", "skewing",
+                                  "speculative", "aggressive"],
+                         help="Devito symbolic engine (DSE) mode")
+     parser.add_argument("-dle", default="advanced",
+-- 
+2.17.1
+

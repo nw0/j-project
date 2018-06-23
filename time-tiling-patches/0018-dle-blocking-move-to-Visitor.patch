@@ -1,0 +1,208 @@
+From 38abdf90592706fd96045e03433e6ec5b1c92fff Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Mon, 19 Feb 2018 20:05:05 +0000
+Subject: [PATCH 18/25] dle: blocking: move to Visitor
+
+Removes problem with compose_nodes
+---
+ devito/dle/backends/advanced.py | 58 +++++---------------------
+ devito/ir/iet/visitors.py       | 74 +++++++++++++++++++++++++++++++--
+ 2 files changed, 81 insertions(+), 51 deletions(-)
+
+diff --git a/devito/dle/backends/advanced.py b/devito/dle/backends/advanced.py
+index b7c902fa..0d694186 100644
+--- a/devito/dle/backends/advanced.py
++++ b/devito/dle/backends/advanced.py
+@@ -3,30 +3,26 @@
+ from __future__ import absolute_import
+ 
+ from collections import OrderedDict
+-from itertools import combinations
+ 
+ import cgen
+ import numpy as np
+ import psutil
+-from sympy import Eq, Min, Max
+ 
+ from devito.cgen_utils import ccode
+-from devito.dimension import Dimension
+ from devito.dle import fold_blockable_tree, unfold_blocked_tree
+ from devito.dle.backends import (BasicRewriter, BlockingArg, dle_pass, omplang,
+                                  simdinfo, get_simd_flag, get_simd_items)
+ from devito.dse import promote_scalar_expressions
+ from devito.exceptions import DLEException
+-from devito.ir.iet import (Block, Expression, Iteration, List,
+-                           PARALLEL, ELEMENTAL, REMAINDER, tagger,
++from devito.ir.iet import (Block, Expression, Iteration, List, ELEMENTAL,
+                            FindNodes, FindSymbols, IsPerfectIteration,
+                            SubstituteExpression, Transformer, compose_nodes,
+                            retrieve_iteration_tree, filter_iterations,
+-                           copy_arrays, SEQUENTIAL)
++                           copy_arrays, BlockIterations)
+ from devito.logger import dle_warning
+ from devito.parameters import configuration
+ from devito.tools import as_tuple, grouper, roundm
+-from devito.types import Array, Scalar
++from devito.types import Array
+ 
+ 
+ class DevitoRewriter(BasicRewriter):
+@@ -153,47 +149,13 @@ class DevitoRewriter(BasicRewriter):
+                 # sequential loop (e.g., a timestepping loop)
+                 continue
+ 
+-            # Decorate intra-block iterations with an IterationProperty
+-            TAG = tagger(len(mapper))
+-
+-            # Build all necessary Iteration objects, individually. These will
+-            # subsequently be composed to implement loop blocking.
+-            inter_blocks = []
+-            intra_blocks = []
+-            for i in iterations:
+-                name = "%s%d_block" % (i.dim.name, len(mapper))
+-
+-                # Build Iteration over blocks
+-                dim = blocked.setdefault(i, Dimension(name))
+-                block_size = dim.symbolic_size  # The variable which will contain the block size
+-                # FIXME: what if the time dimension doesn't start at 0?
+-                # We subtract the skew here to straighten out the blocks
+-                start = i.limits[0] - i.offsets[0]
+-                finish = i.limits[1] - i.offsets[1]
+-
+-                # FIXME: these bounds might be a little fishy
+-                outer_start = start + i.skew[0] * i.skew[1]
+-                outer_finish = finish + i.skew[0] * i.skew[1] - i.skew[0] * i.skew[1].symbolic_end
+-                inter_block = Iteration([], dim, [outer_start, outer_finish, block_size])
+-                inter_blocks.append(inter_block)  # the area being blocked
+-
+-                # Build Iteration within a block
+-                start = Max(inter_block.dim, start)
+-                ub = Min(inter_block.dim + block_size, finish)
+-                if i.is_Parallel:
+-                    q = Scalar(name='%s_ub' % i.dim.name)
+-                    intra_blocks.append(Expression(Eq(q, ub), np.dtype(np.int32)))
+-                    properties = [p for p in i.properties if p != SEQUENTIAL] + [PARALLEL, TAG]
+-                else:
+-                    q = ub
+-                    properties = i.properties + (TAG, ELEMENTAL)
+-                intra_block = i._rebuild([], limits=[start, q, 1], offsets=None,
+-                                         properties=properties)
+-                intra_blocks.append(intra_block)
+-
+-            # Build blocked Iteration nest
+-            blocked_tree = compose_nodes(inter_blocks + intra_blocks +
+-                                         [iterations[-1].nodes])
++            condition = lambda i: (i in iterations)
++            tag = len(mapper)
++            blocker =  BlockIterations(tag, condition=condition)
++            intra_blocks = blocker.visit(root)
++            inter_blocks = blocker.inter_blocks
++            blocked = blocker.blocked
++            blocked_tree = compose_nodes(inter_blocks + [intra_blocks])
+ 
+             # Will replace with blocked loop tree
+             mapper[root] = List(body=[blocked_tree])
+diff --git a/devito/ir/iet/visitors.py b/devito/ir/iet/visitors.py
+index 04c45ab3..3bb6a2eb 100644
+--- a/devito/ir/iet/visitors.py
++++ b/devito/ir/iet/visitors.py
+@@ -12,11 +12,14 @@ from operator import attrgetter
+ 
+ import cgen as c
+ import numpy as np
++from sympy import Max, Min, Eq
+ 
+ from devito.cgen_utils import blankline, ccode
+-from devito.dimension import LoweredDimension
++from devito.dimension import LoweredDimension, Dimension
+ from devito.exceptions import VisitorException
+-from devito.ir.iet.nodes import Iteration, Node, UnboundedIndex
++from devito.ir.iet import tagger, SEQUENTIAL, PARALLEL, ELEMENTAL
++from devito.ir.iet.nodes import Iteration, Node, UnboundedIndex, Expression, \
++    List
+ from devito.types import Scalar
+ from devito.tools import as_tuple, filter_ordered, filter_sorted, flatten, ctypes_to_C
+ 
+@@ -24,7 +27,8 @@ from devito.tools import as_tuple, filter_ordered, filter_sorted, flatten, ctype
+ __all__ = ['FindNodes', 'FindSections', 'FindSymbols', 'MapExpressions',
+            'IsPerfectIteration', 'SubstituteExpression', 'printAST', 'CGen',
+            'ResolveTimeStepping', 'Transformer', 'NestedTransformer',
+-           'FindAdjacentIterations', 'MergeOuterIterations', 'MapIteration']
++           'FindAdjacentIterations', 'MergeOuterIterations', 'MapIteration',
++           'BlockIterations']
+ 
+ 
+ class Visitor(object):
+@@ -806,5 +810,69 @@ class MergeOuterIterations(Transformer):
+     visit_tuple = visit_list
+ 
+ 
++class BlockIterations(Visitor):
++    """
++    Tile an iteration tree, given a condition.
++    """
++
++    def __init__(self, tag, condition=lambda _: True):
++        super(BlockIterations, self).__init__()
++        self.TAG = tagger(tag)
++        self.tag = tag
++        self.condition = condition
++        self.inter_blocks = []
++        self.blocked = {}
++
++    def visit_Block(self, o):
++        #rebuilt = [self.visit(i) for i in o.children]
++        rebuilt = self.visit(o.children)
++        return o._rebuild(*rebuilt, **o.args_frozen)
++
++    def visit_Iteration(self, o):
++        if not self.condition(o):
++            return o._rebuild(*self.visit(o.children), **o.args_frozen)
++
++        # Do the actual blocking
++        name = "%s%d_block" % (o.dim.name, self.tag)
++        dim = self.blocked.setdefault(o, Dimension(name))
++        block_size = dim.symbolic_size
++
++        # FIXME: what if the time dimension doesn't start at 0?
++        # We subtract the skew here to straighten out the blocks
++        dim_start = o.limits[0] - o.offsets[0]
++        dim_finish = o.limits[1] - o.offsets[1]
++
++        skew = o.skew[0] * o.skew[1]
++        skew_max = o.skew[0] * o.skew[1].symbolic_end
++
++        outer_start = dim_start + skew
++        outer_finish = dim_finish + skew - skew_max
++        inter_block = Iteration([], dim, [outer_start, outer_finish, block_size])
++        self.inter_blocks.append(inter_block)
++
++        inner_start = Max(inter_block.dim, dim_start)
++        upper_bound = Min(inter_block.dim + block_size, dim_finish)
++        inner_finish = Scalar(name="%s_ub" % o.dim.name)
++        ub_expr = Expression(Eq(inner_finish, upper_bound), np.dtype(np.int32))
++        if o.is_Parallel:
++            properties = [p for p in o.properties if p != SEQUENTIAL] + [PARALLEL, self.TAG]
++        else:
++            properties = o.properties + (self.TAG, ELEMENTAL)
++
++        rebuilt = self.visit(o.children)
++        i = o._rebuild(*rebuilt, limits=[inner_start, inner_finish, 1],
++                       offsets=None, properties=properties)
++        return List(body=(ub_expr, i))
++
++    def visit_Expression(self, o):
++        return o
++
++    def visit_list(self, o):
++        rebuilt = [self.visit(i) for i in o]
++        return rebuilt
++
++    visit_tuple = visit_list
++
++
+ def printAST(node, verbose=True):
+     return PrintAST(verbose=verbose).visit(node)
+-- 
+2.17.1
+

@@ -1,0 +1,34 @@
+From 54704bc9fc74edc8c0790aa77c852412d1928e88 Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Thu, 15 Feb 2018 16:25:51 +0000
+Subject: [PATCH 13/25] dse: skew: skew before factorising
+
+---
+ devito/dse/backends/advanced.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/devito/dse/backends/advanced.py b/devito/dse/backends/advanced.py
+index f0a2fed3..086f6524 100644
+--- a/devito/dse/backends/advanced.py
++++ b/devito/dse/backends/advanced.py
+@@ -167,15 +167,15 @@ class AdvancedRewriter(BasicRewriter):
+ class SkewingRewriter(AdvancedRewriter):
+ 
+     def _pipeline(self, state):
++        self._loop_skew(state)
+         self._extract_time_invariants(state)
+         self._eliminate_inter_stencil_redundancies(state)
+         self._eliminate_intra_stencil_redundancies(state)
+         self._factorize(state)
+-        self._loop_skew(state)
+ 
+     @dse_pass
+     def _loop_skew(self, cluster, template, **kwargs):
+-        skew_factor = -2  # FIXME: read parameter
++        skew_factor = -1  # FIXME: read parameter
+         t, mapper = None, {}
+         skews = {}
+ 
+-- 
+2.17.1
+

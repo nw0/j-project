@@ -1,0 +1,48 @@
+From 8524985d9b09e355a3c2b304bf8b7b30b1200e78 Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Mon, 4 Jun 2018 18:46:43 +0100
+Subject: [PATCH 24/25] visitor: BlockIterations: remember old loops
+
+Bugfix: would destroy information about previously-blocked loops, as
+`blocked` would get overwritten by an empty dict.
+---
+ devito/dle/backends/advanced.py | 2 +-
+ devito/ir/iet/visitors.py       | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/devito/dle/backends/advanced.py b/devito/dle/backends/advanced.py
+index 0d694186..567a02ba 100644
+--- a/devito/dle/backends/advanced.py
++++ b/devito/dle/backends/advanced.py
+@@ -151,7 +151,7 @@ class DevitoRewriter(BasicRewriter):
+ 
+             condition = lambda i: (i in iterations)
+             tag = len(mapper)
+-            blocker =  BlockIterations(tag, condition=condition)
++            blocker =  BlockIterations(tag, blocked, condition=condition)
+             intra_blocks = blocker.visit(root)
+             inter_blocks = blocker.inter_blocks
+             blocked = blocker.blocked
+diff --git a/devito/ir/iet/visitors.py b/devito/ir/iet/visitors.py
+index 0bb8c445..96a10212 100644
+--- a/devito/ir/iet/visitors.py
++++ b/devito/ir/iet/visitors.py
+@@ -815,13 +815,13 @@ class BlockIterations(Visitor):
+     Tile an iteration tree, given a condition.
+     """
+ 
+-    def __init__(self, tag, condition=lambda _: True):
++    def __init__(self, tag, blocked, condition=lambda _: True):
+         super(BlockIterations, self).__init__()
+         self.TAG = tagger(tag)
+         self.tag = tag
+         self.condition = condition
+         self.inter_blocks = []
+-        self.blocked = {}
++        self.blocked = blocked
+ 
+     def visit_Block(self, o):
+         #rebuilt = [self.visit(i) for i in o.children]
+-- 
+2.17.1
+

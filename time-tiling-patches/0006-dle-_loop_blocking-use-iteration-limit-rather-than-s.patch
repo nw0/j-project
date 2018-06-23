@@ -1,0 +1,29 @@
+From 68520faea738faeda2e8a3d9b939544f93452d9a Mon Sep 17 00:00:00 2001
+From: Nicholas Sim <nicholassimws@gmail.com>
+Date: Tue, 23 Jan 2018 20:36:37 +0000
+Subject: [PATCH 06/25] dle: _loop_blocking: use iteration limit rather than
+ symbolic end
+
+This fixes a propagation issue when blocking: if the end has been
+changed in Iteration.limits[1], dim.symbolic_end would have superseded
+it.
+---
+ devito/dle/backends/advanced.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/devito/dle/backends/advanced.py b/devito/dle/backends/advanced.py
+index a9e7b268..e4d628aa 100644
+--- a/devito/dle/backends/advanced.py
++++ b/devito/dle/backends/advanced.py
+@@ -160,7 +160,7 @@ class DevitoRewriter(BasicRewriter):
+                 dim = blocked.setdefault(i, Dimension(name))
+                 block_size = dim.symbolic_size
+                 start = i.limits[0] - i.offsets[0]  # FIXME: "widen"
+-                finish = i.dim.symbolic_end - i.offsets[1]  # FIXME
++                finish = i.limits[1] - i.offsets[1]  # FIXME
+ 
+                 inter_block = Iteration([], dim, [start, finish, block_size],
+                                         properties=PARALLEL)
+-- 
+2.17.1
+
